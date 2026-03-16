@@ -1,2 +1,1 @@
-STA 207 Prroject
-Group 9
+STA 207 Prroject - Group 9
