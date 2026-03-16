@@ -1,0 +1,338 @@
+---
+title: "STA207 Final code"
+author: "Muhan Yang"
+date: "2026-03-16"
+output: html_document
+---
+
+```{r ref_code_run_hide_all, echo=TRUE, results='hide', fig.show='hide', message=FALSE, warning=FALSE}
+
+load("/Users/mhy/Desktop/STA207/Data/df.rda")
+library(tidyverse)
+library(gt)
+
+#EDA based on a few observations from the Users Guide
+# 1. only 26.6% participated for all four years
+
+all4 <- df %>% filter(flaggk+flagg1+flagg2+flagg3==4)
+
+# i get 2863, 24.67%
+
+# for students who participate for 4 years with the same class type
+
+all4_same_class <- df %>% 
+  filter(flaggk+flagg1+flagg2+flagg3==4) %>% 
+  filter(gkclasstype == g1classtype & g1classtype == g2classtype & g2classtype == g3classtype) 
+
+# n=1556, 13.4%
+
+# for students who participate for 3 years with the same class type
+
+all3_sameclass <- df %>% 
+  filter(flagg1+flagg2+flagg3==3) %>% 
+  filter(g1classtype == g2classtype & g2classtype == g3classtype) 
+
+# n=3423, 29.5%
+# this seems to be the right mix of selective and inclusive
+
+summary_table <- tibble(
+  group = c("Full Dataset",
+            "K through 4th grade", 
+            "K through 4th grade, same class type", 
+            "K through 3rd grade, same class type"),
+  n = c(nrow(df),
+        nrow(all4),
+        nrow(all4_same_class), 
+        nrow(all3_sameclass)),
+  percent = c(100,
+              nrow(all4)/nrow(df)*100, 
+              nrow(all4_same_class)/nrow(df)*100, 
+              nrow(all3_sameclass)/nrow(df)*100)
+)
+
+gt(summary_table) %>% 
+  fmt_number(columns = vars(percent), decimals = 2) %>% 
+  cols_label(group = "Group", n = "Number of Students", percent = "Percentage of Total") 
+
+# 2. there are different scores to use, read/math/listening for SAT, also read/math BSF. 
+# each of these are available for each year. 
+
+score_cols_sat <- c('g1treadss', 'g1tmathss', 'g1tlistss', 
+                'g2treadss', 'g2tmathss', 'g2tlistss', 
+                'g3treadss', 'g3tmathss', 'g3tlistss')
+
+score_cols_bsf <- c('g1readbsraw', 'g1mathbsraw',
+                    'g2readbsraw', 'g2mathbsraw',
+                    'g3readbsraw', 'g3mathbsraw')
+
+sat_scores <- df %>% 
+  select(all_of(score_cols_sat)) %>% 
+  pivot_longer(cols = everything(), names_to = "score_type", values_to = "score") %>%
+  mutate(
+    class = case_when(
+      str_detect(score_type, "read") ~ "reading",
+      str_detect(score_type, "math") ~ "math",
+      str_detect(score_type, "list") ~ "listening"),
+    grade = as.factor(case_when(
+      str_detect(score_type, "g1") ~ 1,
+      str_detect(score_type, "g2") ~ 2,
+      str_detect(score_type, "g3") ~ 3
+    ))
+  ) 
+
+
+bsf_scores <- df %>%
+  select(all_of(score_cols_bsf)) %>%
+  pivot_longer(cols = everything(), names_to = "score_type", values_to = "score") %>%
+  mutate(
+    class = case_when(
+      str_detect(score_type, "read") ~ "reading",
+      str_detect(score_type, "math") ~ "math"),
+    grade = as.factor(case_when(
+      str_detect(score_type, "g1") ~ 1,
+      str_detect(score_type, "g2") ~ 2,
+      str_detect(score_type, "g3") ~ 3
+    ))
+  ) 
+
+
+#sat_plot <- ggplot(sat_scores,
+      # aes(x = class, y = score, fill=grade)) +
+  #geom_violin() +
+  #theme_minimal(); sat_plot
+
+# 
+#bsf_plot <-ggplot(bsf_scores,
+                  #aes(x = class, y = score, fill=grade)) +
+  #geom_violin() +
+  #theme_minimal(); bsf_plot
+
+#hist(sat_scores$score)
+#hist(bsf_scores$score)
+
+#par(mfrow = c(2, 2), mar = c(3, 3, 2, 1))
+
+#hist(sat_scores$score, main = "SAT Scores", xlab = "Score")
+#hist(bsf_scores$score, main = "BSF Scores", xlab = "Score")
+#observations: scores differ per class and per grade with a trend
+# as grade increases, scores increase, so either control or include in design
+# SAT scores are more nicely distributed than BSF scores
+# choose to use SAT scores
+load("/Users/mhy/Desktop/STA207/Data/df_subset (2).rda")
+
+# Convert column "subject" into factor
+df_subset$subject <- as.factor(df_subset$subject)
+head(df_subset)
+library(dplyr)
+library(car)
+library(lme4)
+library(influence.ME)
+full_model <- lm(score ~ class_type+subject+gender+race+grade+urban, df_subset)
+
+inter_full <- lm(score ~ class_type+subject+gender+grade+urban+race+subject*grade, df_subset)
+
+par(mfrow = c(1, 2),
+    mar = c(4, 4, 2, 1),
+    cex = 0.85,
+    cex.axis = 0.8,
+    cex.lab = 0.9,
+    cex.main = 1)
+#plot(full_model, which=1)
+inter_full <- lm(score ~ class_type+subject+gender+grade+urban+race+subject*grade, df_subset)
+
+#Anova(inter_full, type="III")
+
+mixed_model_sch <- lmer(score
+    ~ class_type
+    + subject
+    + gender
+    + race
+    + grade
+    + subject*grade
+    + (1|schid),
+    data=df_subset)
+library(knitr)
+
+random_table <- data.frame(
+  Groups = c("stdntid", "Residual"),
+  Name = c("(Intercept)", ""),
+  Variance = c(139.8, 1363.9),
+  Std.Dev. = c(11.82, 36.93)
+)
+library(knitr)
+
+random_table <- data.frame(
+  Groups = c("stdntid", "Residual"),
+  Name = c("(Intercept)", ""),
+  Variance = c(857.9, 633.9),
+  Std.Dev. = c(29.29, 25.18)
+)
+
+#plot(final_model, type = c("p", "smooth"))
+
+res <- residuals(final_model)
+
+#Plot the histogram
+hist(res, 
+     breaks = 50, 
+     col = "skyblue", 
+     xlim = c(-100, 100),
+     main = "Histogram of Residuals", 
+     xlab = "Residuals")
+
+x <- seq(min(res), max(res), length = 100)
+y <- dnorm(x, mean = mean(res), sd = sd(res))/3
+y <- y * diff(hist(res, plot = FALSE)$mids[1:2]) * length(res)
+lines(x, y, col = "red", lwd = 2)
+
+
+
+# Plot the histogram for random effect: student
+random_effects <- ranef(final_model)
+student_intercepts <- random_effects$stdntid[, "(Intercept)"]
+hist(student_intercepts, 
+     breaks = 20, 
+     col = "darkseagreen", 
+     main = "Histogram of Random Intercepts (Students)", 
+     xlab = "Random Effect Estimate")
+
+
+
+library(broom.mixed)
+tidy(final_model)
+categories <- list(
+  subject = c("math", "reading", "listening"),
+  race = c("white", "black"),
+  urban = c("urban", "suburban", "inner city"),
+  gender = c("male", "female"),
+  grade = c("1", "2", "3")
+)
+
+
+library(gt)
+
+model_table <- data.frame(
+  Model = c(
+    "Multiple Linear Regression\nModel without interaction term",
+    "Multiple Linear Regression\nModel with interaction term",
+    "Mixed Effect Model\n(school as random effect)",
+    "Mixed Effect Model\n(student as random effect)"
+  ),
+  `Variance of Residual` = c(1517, 1472, 1364, 634),
+  `Coefficient of small class` = c(8.867, 8.879, 9.468, 8.915),
+  check.names = FALSE
+)
+
+gt(model_table) |>
+  cols_label(
+    Model = "",
+    `Variance of Residual` = "Variance of Residual",
+    `Coefficient of small class` = "Coefficient of small class"
+  ) |>
+  fmt_number(
+    columns = `Coefficient of small class`,
+    decimals = 3
+  ) |>
+  tab_style(
+    style = list(
+      #cell_fill(color = "#37474F"),
+     # cell_text(color = "white", size = px(18))
+    ),
+    locations = cells_body()
+  ) |>
+  tab_style(
+    style = list(
+     # cell_fill(color = "#37474F"),
+      #cell_text(color = "white", weight = "bold", size = px(20))
+    ),
+    locations = cells_column_labels()
+  ) |>
+  tab_options(
+    table.border.top.color = "white",
+    table.border.bottom.color = "white",
+    column_labels.border.top.color = "white",
+    column_labels.border.bottom.color = "white",
+    table_body.hlines.color = "white",
+    table_body.vlines.color = "white",
+    column_labels.vlines.color = "white",
+    heading.border.bottom.color = "white"
+  )
+
+
+# Get a list of all unique school IDs
+all_schools <- unique(df_subset$schid)
+# Create a vector to store results
+results <- numeric(length(all_schools))
+
+for(i in 1:length(all_schools)) {
+  # Excluding one school
+  temp_data <- subset(df_subset, schid != all_schools[i])
+  
+  temp_model <- lmer(score ~ class_type + grade + gender + subject + race + subject*grade + (1|stdntid), data = temp_data)
+  
+  # Coefficient for small class size
+  results[i] <- fixef(temp_model)["class_typesmall"]
+}
+
+plot(results, main="Sensitivity: Leave-One-School-Out", ylab="Small Class Coefficient")
+abline(h = mean(results), col="red")
+
+
+# Function to run model and extract the "Small Class" coefficient
+get_effect <- function(col_name, group_val, my_form) {
+  sub_data <- df_subset %>% filter(!!sym(col_name) == group_val)
+  
+  model <- lmer(as.formula(my_form), data = sub_data)
+  
+  tidy(model, conf.int = TRUE, conf.method = "Wald") %>%
+    filter(term == "class_typesmall") %>%
+    select(estimate, conf.low, conf.high) %>%
+    mutate(subgroup = paste(col_name, ":", group_val), category = col_name)
+}
+
+subject1 <- get_effect("subject", "math", "score ~ gender + race + class_type + grade + urban + (1 | stdntid)")
+subject2 <- get_effect("subject", "reading", "score ~ gender + race + class_type + grade + urban + (1 | stdntid)")
+subject3 <- get_effect("subject", "listening", "score ~ gender + race + class_type + grade + urban + (1 | stdntid)")
+
+grade1 <- get_effect("grade", "1", "score ~ gender + race + class_type + subject + urban + (1 | stdntid)")
+grade2 <- get_effect("grade", "2", "score ~ gender + race + class_type + subject + urban + (1 | stdntid)")
+grade3 <- get_effect("grade", "3", "score ~ gender + race + class_type + subject + urban + (1 | stdntid)")
+
+gender1 <- get_effect("gender", "male", "score ~ grade + race + class_type + subject + urban + subject*grade + (1 | stdntid)")
+gender2 <- get_effect("gender", "female", "score ~ grade + race + class_type + subject + urban + subject*grade + (1 | stdntid)")
+
+#race1 <- get_effect("race", "asian", "score ~ grade + gender + class_type + subject + urban + subject*grade + (1 | stdntid)")
+race2 <- get_effect("race", "black", "score ~ grade + gender + class_type + subject + urban + subject*grade + (1 | stdntid)")
+#race3 <- get_effect("race", "hispanic", "score ~ grade + gender + class_type + subject + urban + subject*grade + (1 | stdntid)")
+#race4 <- get_effect("race", "other", "score ~ grade + gender + class_type + subject + urban + subject*grade + (1 | stdntid)")
+race5 <- get_effect("race", "white", "score ~ grade + gender + class_type + subject + urban + subject*grade + (1 | stdntid)")
+
+urban1 <- get_effect("urban", "inner city", "score ~ grade + gender + class_type + subject + race + subject*grade + (1 | stdntid)")
+urban2 <- get_effect("urban", "rural", "score ~ grade + gender + class_type + subject + race + subject*grade + (1 | stdntid)")
+urban3 <- get_effect("urban", "suburban", "score ~ grade + gender + class_type + subject + race + subject*grade + (1 | stdntid)")
+urban4 <- get_effect("urban", "urban", "score ~ grade + gender + class_type + subject + race + subject*grade + (1 | stdntid)")
+
+all_results <- bind_rows(subject1, subject2, subject3,
+    grade1, grade2, grade3,
+    gender1, gender2,
+    race2, race5,
+    urban1, urban2, urban3, urban4)
+all_results
+
+par(mar = c(5, 10, 4, 2) + 0.1)
+# Create a blank plot area
+plot(all_results$estimate, 1:nrow(all_results), 
+     pch = 19, xlim = range(c(all_results$conf.low, all_results$conf.high)),
+     yaxt = "n", xlab = "Estimate and 95% CI", ylab = "", 
+     main = "Small Class Effect by Subgroup")
+
+# Add the subgroup labels to the y-axis
+axis(2, at = 1:nrow(all_results), labels = all_results$subgroup, las = 1)
+
+# Add the confidence interval lines
+arrows(all_results$conf.low, 1:nrow(all_results), 
+       all_results$conf.high, 1:nrow(all_results), 
+       angle = 90, code = 3, length = 0.05)
+
+
+```
